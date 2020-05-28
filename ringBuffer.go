@@ -1,6 +1,7 @@
 package ringbuffer
 
 import (
+	"bytes"
 	"errors"
 )
 
@@ -9,6 +10,11 @@ var (
 	errEmpty = errors.New("空")
 )
 
+/**
+不是使用虚拟指针,
+因为一般的分包都是 payload分隔符 或者长度+payload 或者 分隔符payload分隔符
+所以通过2个方法,在不修改读取指针的情况下查询结果
+*/
 type RingBuffer struct {
 	data    []byte
 	r       int //下一个读取的位置
@@ -26,7 +32,18 @@ func NewRingBuffer(length int) *RingBuffer {
 		isEmpty: true,
 	}
 }
-func (r *RingBuffer) Read(target []byte) (int, error) {
+
+//读取一段,但是读取指针不会该改变
+func (r *RingBuffer) VirtualRead(target []byte) (int, error) {
+	return r.read(target)
+}
+
+//读取到分割符号,可以跳过的
+func (r *RingBuffer) Index(sep []byte, step int) int {
+	return bytes.Index(r.data[step:], sep)
+}
+
+func (r *RingBuffer) read(target []byte) (int, error) {
 	n := len(target)
 	if n == 0 {
 		return 0, nil
@@ -40,24 +57,26 @@ func (r *RingBuffer) Read(target []byte) (int, error) {
 	}
 	if r.r < r.w {
 		copy(target, r.data[r.r:r.w])
-		r.r += n
 	} else {
 		c1 := r.size - r.r
 		if c1 >= n {
 			copy(target, r.data[r.r:])
-			r.r += n
 		} else {
-			copy(target[:c1], r.data[r.r:])
-			c2 := n - r.r
-			copy(target[c1:], r.data[:c2])
-			r.r = c2
+			copy(target, r.data[r.r:])
+			copy(target[c1:], r.data[:n-r.size+r.r])
 		}
 	}
-	if r.r == r.size {
-		r.r = 0
+	return n, nil
+}
+func (r *RingBuffer) Read(target []byte) (int, error) {
+	n, err := r.read(target)
+	if err != nil {
+		return 0, err
 	}
+	r.r = (r.r + n) % r.size
 	r.isEmpty = true
 	return n, nil
+
 }
 func (r *RingBuffer) ReadByte() (byte, error) {
 	if r.Length() == 0 {
@@ -97,7 +116,6 @@ func (r *RingBuffer) Write(data []byte) (int, error) {
 			copy(r.data[0:], data[c1:])
 			r.w = c2
 		}
-
 	}
 	if r.w == r.size {
 		r.w = 0

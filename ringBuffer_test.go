@@ -46,3 +46,16 @@ func TestRingBuffer_Read(t *testing.T) {
 		t.Fatal("继续读取")
 	}
 }
+func TestRingBuffer_Wr(t *testing.T) {
+	rb := NewRingBuffer(2)
+	if err := rb.WriteByte('1'); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rb.ReadByte(); err != nil {
+		t.Fatal(err)
+	}
+	if err := rb.WriteByte('2'); err != nil {
+		t.Fatal(err)
+	}
+
+}
