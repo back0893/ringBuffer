@@ -6,31 +6,43 @@ import (
 )
 
 var (
-	errFull  = errors.New("不能新增值")
-	errEmpty = errors.New("空")
+	errFull  = errors.New("已经最大空间")
+	errEmpty = errors.New("缓存为空")
 )
 
 /**
 不是使用虚拟指针,
 因为一般的分包都是 payload分隔符 或者长度+payload 或者 分隔符payload分隔符
 所以通过2个方法,在不修改读取指针的情况下查询结果
+新增成为动态扩容的环形缓存,新增一个maxPacketSize 作为一个环形缓存的最大缓存大小防止错误的分包
+导致的内存爆炸..
 */
 type RingBuffer struct {
-	data    []byte
-	r       int //下一个读取的位置
-	w       int //下一个写入的位置
-	size    int
-	isEmpty bool
+	data          []byte
+	r             int //下一个读取的位置
+	w             int //下一个写入的位置
+	size          int
+	isEmpty       bool
+	maxPacketSize int //默认为1024000字节的长度
+	autoSize      int //每次扩大的容量大小
 }
 
 func NewRingBuffer(length int) *RingBuffer {
 	return &RingBuffer{
-		data:    make([]byte, length),
-		r:       0,
-		w:       0,
-		size:    length,
-		isEmpty: true,
+		data:          make([]byte, length),
+		r:             0,
+		w:             0,
+		size:          length,
+		isEmpty:       true,
+		maxPacketSize: 1024 * 1000, //默认为1024000字节的长度
+		autoSize:      1024,        //每次扩大的容量大小
 	}
+}
+func (r *RingBuffer) SetMaxSize(size int) {
+	r.maxPacketSize = size
+}
+func (r *RingBuffer) SetAutoSize(size int) {
+	r.autoSize = size
 }
 
 //读取一段,但是读取指针不会该改变
@@ -40,7 +52,17 @@ func (r *RingBuffer) VirtualRead(target []byte) (int, error) {
 
 //读取到分割符号,可以跳过的
 func (r *RingBuffer) Index(sep []byte, step int) int {
-	return bytes.Index(r.data[step:], sep)
+	if r.w > r.r {
+		return bytes.Index(r.data[r.r+step:r.w], sep) + step
+	}
+	i := bytes.Index(r.data[r.r+step:], sep)
+	if i == -1 {
+		i = bytes.Index(r.data[:r.w], sep) + r.size - r.r
+	}
+	if i == -1 {
+		return -1
+	}
+	return i + step
 }
 
 func (r *RingBuffer) read(target []byte) (int, error) {
@@ -94,20 +116,28 @@ func (r *RingBuffer) Write(data []byte) (int, error) {
 	if len(data) == 0 {
 		return 0, nil
 	}
-	if r.IsFull() {
-		return 0, errFull
+	for r.IsFull() {
+		if r.size > r.maxPacketSize {
+			return 0, errFull
+		}
+		r.w = r.size
+		r.size += r.autoSize
 	}
 	free := r.Free()
 	n := len(data)
-	if n > free {
-		return 0, errFull
+	for n > free {
+		//这个时候也需要扩大缓存
+		if r.size > r.maxPacketSize {
+			return 0, errFull
+		}
+		r.size += r.autoSize
 	}
 	if r.r > r.w {
 		copy(r.data[r.w:], data)
 		r.w += n
 	} else {
 		c1 := r.size - r.w
-		if c1 > n {
+		if c1 >= n {
 			copy(r.data[r.w:], data)
 			r.w += n
 		} else {
@@ -124,8 +154,11 @@ func (r *RingBuffer) Write(data []byte) (int, error) {
 	return n, nil
 }
 func (r *RingBuffer) WriteByte(b byte) error {
-	if r.IsFull() {
-		return errFull
+	for r.IsFull() {
+		if r.size >= r.maxPacketSize {
+			return errFull
+		}
+		r.size += r.autoSize
 	}
 	r.data[r.w] = b
 	r.w++
