@@ -1,7 +1,7 @@
 package pool
 
 import (
-	"ringbuffer"
+	"github.com/back0893/ringBuffer"
 	"sync"
 )
 
