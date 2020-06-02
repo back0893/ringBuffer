@@ -26,8 +26,11 @@ func TestRingBuffer_Write(t *testing.T) {
 		t.Fatal("计算慢错误")
 	}
 	_, err = rb.Write([]byte{1, 2})
-	if err == nil {
+	if err != nil {
 		t.Fatal("幔子继续插入")
+	}
+	if rb.Capacity() != 4 {
+		t.Fatal("扩容失败")
 	}
 
 }
@@ -123,7 +126,6 @@ func TestRingBufferAutoSize(t *testing.T) {
 	}
 
 	if _, err := rb.Write([]byte{'1', '2'}); err == nil {
-		t.Fatal("扩容成功")
+		t.Fatal("扩容成功", rb.Capacity())
 	}
-
 }

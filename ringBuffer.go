@@ -116,21 +116,14 @@ func (r *RingBuffer) Write(data []byte) (int, error) {
 	if len(data) == 0 {
 		return 0, nil
 	}
-	for r.IsFull() {
-		if r.size > r.maxPacketSize {
-			return 0, errFull
-		}
-		r.w = r.size
-		r.size += r.autoSize
-	}
 	free := r.Free()
 	n := len(data)
-	for n > free {
+	if n > free {
 		//这个时候也需要扩大缓存
-		if r.size > r.maxPacketSize {
+		if r.size >= r.maxPacketSize {
 			return 0, errFull
 		}
-		r.size += r.autoSize
+		r.makeSpace(n - free)
 	}
 	if r.r > r.w {
 		copy(r.data[r.w:], data)
@@ -248,4 +241,17 @@ func (r *RingBuffer) IsFull() bool {
 	写入时.isEmpty为false,就需要判断读写,写指针是否相等,相等就是为满
 	*/
 	return !r.isEmpty && r.r == r.w
+}
+
+func (r *RingBuffer) makeSpace(n int) {
+	//我草,,可以不去计算咋个做
+	//直接移动到新的数组中,也对反正长度新增了,也需要构筑新的数组
+	newSize := r.size + n
+	oldLength := r.Length()
+	newData := make([]byte, newSize)
+	_, _ = r.Read(newData)
+	r.r = 0
+	r.w = oldLength
+	r.data = newData
+	r.size = newSize
 }
